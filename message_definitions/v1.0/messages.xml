@@ -2404,6 +2404,11 @@
       <field name="data" type="uint8[]"/>
     </message>
 
+    <message name="CHANNEL" id="158">
+      <description>Delay in ms before another command arrives</description>
+      <field name="delay" type="uint8"/>
+    </message>
+
   </msg_class>
 
 
