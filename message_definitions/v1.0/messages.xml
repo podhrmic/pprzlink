@@ -2409,8 +2409,8 @@
       <field name="data" type="uint8[]"/>
     </message>
 
-    <message name="CHANNEL" id="158">
-      <description>Delay in ms before another command arrives</description>
+    <message name="SYNC_CHANNEL" id="158">
+      <description>Synchronization message for communication scheduling. Contains delay in ms before another command arrives</description>
       <field name="delay" type="uint8"/>
     </message>
 
