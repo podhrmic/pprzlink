@@ -1,5 +1,8 @@
 #include "prqueue.h"
 
+struct pqueue_t pprz_queue;
+struct msg_container_t pprz_msg;
+
 uint8_t pq_isless(const msg_container_t a, const msg_container_t b)
 {
   if (a.priority > b.priority)

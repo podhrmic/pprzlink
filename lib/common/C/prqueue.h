@@ -38,6 +38,9 @@ extern "C"
 
   uint8_t pq_size(pqueue_t *queue);
 
+  extern struct pqueue_t pprz_queue;
+  extern struct msg_container_t pprz_msg;
+
 #ifdef __cplusplus
 }
 #endif
