@@ -39,6 +39,7 @@
  */
 
 #include <inttypes.h>
+#include <stdio.h>
 #include "pprzlink/secure_pprz_transport.h"
 
 // PPRZ parsing state machine
@@ -110,7 +111,7 @@ static void put_priority(struct spprz_transport *trans, struct link_device *dev 
 /**
  * Put bytes into a buffer
  */
-static void put_bytes(struct spprz_transport *trans, struct link_device *dev, long fd,
+static void put_bytes(struct spprz_transport *trans, struct link_device *dev __attribute__((unused)), long fd __attribute__((unused)),
                       enum TransportDataType type __attribute__((unused)), enum TransportDataFormat format __attribute__((unused)),
                       const void *bytes, uint16_t len)
 {
@@ -120,15 +121,15 @@ static void put_bytes(struct spprz_transport *trans, struct link_device *dev, lo
     accumulate_checksum(trans, b[i]);
   }
   //dev->put_buffer(dev->periph, fd, b, len);
-  for (uint8_t i=0;i<len;i++) {
-    msg_put_byte(trans,b[i]);
+  for (uint8_t j=0;j<len;j++) {
+    msg_put_byte(trans,b[j]);
   }
 }
 
 /**
  * Identical to a regular put_byte
  */
-static void put_named_byte(struct spprz_transport *trans, struct link_device *dev, long fd,
+static void put_named_byte(struct spprz_transport *trans, struct link_device *dev, long fd __attribute__((unused)),
                            enum TransportDataType type __attribute__((unused)), enum TransportDataFormat format __attribute__((unused)),
                            uint8_t byte, const char *name __attribute__((unused)))
 {
@@ -150,10 +151,10 @@ static uint8_t size_of(struct spprz_transport *trans __attribute__((unused)), ui
 /**
  * Start putting bytes into the interim message structure
  */
-static void start_message(struct spprz_transport *trans, struct link_device *dev, long fd, uint8_t payload_len)
+static void start_message(struct spprz_transport *trans, struct link_device *dev __attribute__((unused)), long fd __attribute__((unused)), uint8_t payload_len)
 {
   // clear buffer
-  memset(trans->msg,0,sizeof(struct msg_container_t));
+  memset(&(trans->msg),0,sizeof(struct msg_container_t));
 
   // insert header
   // dev->put_byte(dev->periph, fd, PPRZ_STX);
@@ -174,6 +175,14 @@ static void start_message(struct spprz_transport *trans, struct link_device *dev
 
 
 /**
+ * Increment the overrun error
+ */
+static void overrun(struct spprz_transport *trans __attribute__((unused)), struct link_device *dev)
+{
+  dev->nb_ovrn++;
+}
+
+/**
  * Finalize message and insert it into a queue
  */
 static void end_message(struct spprz_transport *trans, struct link_device *dev, long fd)
@@ -183,23 +192,15 @@ static void end_message(struct spprz_transport *trans, struct link_device *dev, 
   msg_put_byte(trans,trans->ck_a_tx);
   msg_put_byte(trans,trans->ck_b_tx);
 
-  trans->msg.time = trans->get_time_usec() / 1000;
+  // time of insertion in ms
+  trans->msg.time = trans->get_time_msec();
 
   //dev->send_message(dev->periph, fd);
-  if (pq_push(trans->queue, trans->msg) == 0) {
+  if (pq_push(&(trans->queue), &(trans->msg)) == 0) {
     // TODO: a placeholder for a error handling (if the queue is full)
     overrun(trans, dev);
   }
 }
-
-/**
- * Increment the overrun error
- */
-static void overrun(struct spprz_transport *trans __attribute__((unused)), struct link_device *dev)
-{
-  dev->nb_ovrn++;
-}
-
 
 /**
  * No change here
@@ -212,15 +213,14 @@ static void count_bytes(struct spprz_transport *trans __attribute__((unused)), s
 /**
  * Returns 1 if there is space available in the queue
  */
-static int check_available_space(struct spprz_transport *trans __attribute__((unused)), struct link_device *dev,
-                                 long *fd, uint16_t bytes)
+static int check_available_space(struct spprz_transport *trans __attribute__((unused)), struct link_device *dev __attribute__((unused)),
+                                 long *fd __attribute__((unused)), uint16_t bytes __attribute__((unused)))
 {
   //return dev->check_free_space(dev->periph, fd, bytes);
-  if (pq_size(trans->queue) < PPRZ_MAX_Q_SIZE) {
+  if (pq_size(&(trans->queue)) < PPRZ_MAX_Q_SIZE) {
     return 1; // space available
-  } else {
-    return 0; // the queue is full
   }
+  return 0; // the queue is full
 }
 
 /**
@@ -243,10 +243,10 @@ void spprz_transport_init(struct spprz_transport *t, get_time_msec_t get_time_ms
   t->trans_tx.put_priority = (put_priority_t) put_priority;
 
   // init the queue
-  pq_init(t->queue);
+  pq_init(&(t->queue));
 
   // init the interim message
-  memset(t->msg,0,sizeof(struct msg_container_t));
+  memset(&(t->msg),0,sizeof(struct msg_container_t));
 
   // scheduling variables
   t->delay = 0;
@@ -331,8 +331,9 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *tran
 
 /**
  * Main scheduling function, called from telemetry_periodic at TELEMETRY_FREQUENCY
+ * TODO
  */
-void spprz_scheduling_periodic(struct link_device *dev, struct spprz_transport *trans) {
+static void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), struct spprz_transport *trans __attribute__((unused))) {
   // copy what is in the rustlink implementation
 }
 
