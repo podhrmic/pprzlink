@@ -40,7 +40,6 @@
 
 #include <inttypes.h>
 #include "pprzlink/secure_pprz_transport.h"
-#include "secure_pprz_transport.h" // DUMMY include
 
 // PPRZ parsing state machine
 #define UNINIT      0
@@ -227,7 +226,7 @@ static int check_available_space(struct spprz_transport *trans __attribute__((un
 /**
  * Init secure pprz transport structure
  */
-void spprz_transport_init(struct spprz_transport *t, get_time_usec_t get_time_usec)
+void spprz_transport_init(struct spprz_transport *t, get_time_msec_t get_time_msec)
 {
   t->status = UNINIT;
   t->trans_rx.msg_received = false;
@@ -240,7 +239,7 @@ void spprz_transport_init(struct spprz_transport *t, get_time_usec_t get_time_us
   t->trans_tx.overrun = (overrun_t) overrun;
   t->trans_tx.count_bytes = (count_bytes_t) count_bytes;
   t->trans_tx.impl = (void *)(t);
-  t->get_time_usec = get_time_usec;
+  t->get_time_msec = get_time_msec;
   t->trans_tx.put_priority = (put_priority_t) put_priority;
 
   // init the queue

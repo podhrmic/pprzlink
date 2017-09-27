@@ -102,7 +102,7 @@ struct spprz_transport {
   struct msg_container_t msg;
 
   // get current time function pointer
-  get_time_usec_t get_time_usec;
+  get_time_msec_t get_time_msec;
 
   // scheduling variables
   uint8_t delay; // in ms
