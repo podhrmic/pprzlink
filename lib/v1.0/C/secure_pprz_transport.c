@@ -311,6 +311,7 @@ restart:
 
 /**
  *  Parsing a frame data and copy the payload to the datalink buffer
+ *  All the logic over payload is done in paparazzi itself
  */
 void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *trans, uint8_t *buf, bool *msg_available)
 {
@@ -320,34 +321,10 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *tran
       parse_spprz(trans, dev->get_byte(dev->periph));
     }
     if (trans->trans_rx.msg_received) {
-      // 0 SENDER_ID // 1 byte
-      // 1 MSG_ID // 1 byte
-      // 2 MSG_PAYLOAD // 0 - N bytes
-      uint8_t sender_id = trans->trans_rx.payload[0];
-      uint8_t msg_id = trans->trans_rx.payload[1];
-
-      // update the rx time
-      trans->last_rx_time = trans->get_time_usec() / 1000;
-
-      switch (msg_id) {
-        case GOT_SYNC_CHANNEL:
-          // make sure we have the msg from GCS
-          if (sender_id == 0) {
-            trans->delay = trans->trans_rx.payload[2];
-          }
-          // TODO: update delay & status
-          break;
-        case GOT_PING:
-          // TODO: send ping
-          break;
-        default:
-          // otherwise just copy data
-          for (i = 0; i < trans->trans_rx.payload_len; i++) {
-            buf[i] = trans->trans_rx.payload[i];
-          }
-          *msg_available = true;
-          break;
+      for (i = 0; i < trans->trans_rx.payload_len; i++) {
+        buf[i] = trans->trans_rx.payload[i];
       }
+      *msg_available = true;
       trans->trans_rx.msg_received = false;
     }
   }
