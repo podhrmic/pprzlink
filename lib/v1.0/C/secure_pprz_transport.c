@@ -39,7 +39,7 @@
  */
 
 #include <inttypes.h>
-#include <stdio.h>
+#include <string.h>
 #include "pprzlink/secure_pprz_transport.h"
 
 // PPRZ parsing state machine
@@ -129,7 +129,7 @@ static void put_bytes(struct spprz_transport *trans, struct link_device *dev __a
 /**
  * Identical to a regular put_byte
  */
-static void put_named_byte(struct spprz_transport *trans, struct link_device *dev, long fd __attribute__((unused)),
+static void put_named_byte(struct spprz_transport *trans, struct link_device *dev __attribute__((unused)), long fd __attribute__((unused)),
                            enum TransportDataType type __attribute__((unused)), enum TransportDataFormat format __attribute__((unused)),
                            uint8_t byte, const char *name __attribute__((unused)))
 {
