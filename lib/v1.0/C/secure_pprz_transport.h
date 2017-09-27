@@ -65,7 +65,7 @@ enum SecurePprzTransportStatus {
   SECURE_PPRZ_TRANSPORT_STATUS_TRANSMITTING,
 };
 
-typedef uint32_t (*get_time_usec_t)(void);
+typedef uint32_t (*get_time_msec_t)(void);
 
 struct msg_container_t {
     uint8_t data[PPRZ_MAX_MSG_LEN]; // max size of the message
@@ -115,7 +115,7 @@ struct spprz_transport {
 
 
 // Init function
-extern void spprz_transport_init(struct spprz_transport *t, uint32_t (*get_time_usec_t)(void));
+extern void spprz_transport_init(struct spprz_transport *t, uint32_t (*get_time_msec_t)(void));
 
 // Checking new data and parsing
 extern void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *trans, uint8_t *buf, bool *msg_available);
