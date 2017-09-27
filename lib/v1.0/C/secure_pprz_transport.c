@@ -185,7 +185,7 @@ static void overrun(struct spprz_transport *trans __attribute__((unused)), struc
 /**
  * Finalize message and insert it into a queue
  */
-static void end_message(struct spprz_transport *trans, struct link_device *dev, long fd)
+static void end_message(struct spprz_transport *trans, struct link_device *dev, long fd __attribute__((unused)))
 {
   //dev->put_byte(dev->periph, fd, trans->ck_a_tx);
   //dev->put_byte(dev->periph, fd, trans->ck_b_tx);
@@ -351,7 +351,7 @@ uint8_t pq_isless(const struct msg_container_t a, const struct msg_container_t b
 
 uint8_t pq_init(struct pqueue_t *queue)
 {
-  memset(queue, 0, sizeof(queue));
+  memset(queue, 0, sizeof(*queue));
   return queue->N = 0;
 }
 
