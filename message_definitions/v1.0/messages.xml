@@ -266,7 +266,7 @@
     </message>
 
 <!-- Current value of one variable from the dl_settings (airframe.xml) -->
-    <message name="DL_VALUE" id="31">
+    <message name="DL_VALUE" id="31" priority="2">
       <field name="index" type="uint8"/>
       <field name="value" type="float"/>
     </message>
@@ -1991,7 +1991,7 @@
       <field name="airspeed" type="float" unit="m/s">local airspeed norm</field>
     </message>
 
-    <message name="SETTING" id="4" link="forwarded">
+    <message name="SETTING" id="4" link="forwarded" priority="2">
       <field name="index" type="uint8"/>
       <field name="ac_id" type="uint8"/>
       <field name="value" type="float"/>

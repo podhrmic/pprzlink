@@ -324,8 +324,7 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, u
  * The typical transmit interval can be around 35 ms (~6 iterations)
  */
 void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), struct spprz_transport *t __attribute__((unused))) {
-  static uint32_t elapsed = 0;
-  static uint8_t msg_len = 0;
+  static uint32_t elapsed = 0; // counts the elapsed time
 
   // copy what is in the rustlink implementation
   switch (t->scheduler_status) {
@@ -351,30 +350,32 @@ void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), 
 
         // check how much more data we can send
         uint32_t remaining_time = t->delay - elapsed; // > 0
-        uint32_t max_len_32 = (remaining_time * 1000)/PPRZ_US_PER_BYTE; // cast to us and divide by US_PER_BYTE
+        uint32_t max_len_32 = (remaining_time * 1000)/PPRZ_US_PER_BYTE; // cast to u_secs and divide by US_PER_BYTE
         uint8_t max_len = Min(max_len_32, 256); // bound max_len to 256
+        uint8_t msg_len = 0; // number of bytes to send
+        uint8_t max_size = max_len; // remaining number of bytes to send
 
         // this is risky if we are sending lots of data - but should be fine once we start using proper threads
         // keep checking the queue until it is empty or until the popped message isn't exceeding the length
-        while ( !pq_isempty(&(t->queue)) ) {
-          // get max element
-          if (pq_getmax(&(t->queue), &(t->msg_tx))) {
-            // increment size
-            msg_len += t->msg_tx.size;
 
-            // check if we can send in the given time interval
-            if (msg_len <= max_len) {
-              // send data
-              // FIXME: fd is not handed down, set to zero for now (stm32 arch ignores it, and chibios sets fd to zero anyway)
-              dev->put_buffer(dev->periph, 0, t->msg_tx.data, t->msg_tx.size);
-            } else {
-              // the popped message exceeded the length, reinsert to the queue
-              pq_push(&(t->queue), &(t->msg_tx));
-            }
-          }
+        // select the max element that fits into the transaction window (if no messages that fit the window are
+        // available, returns 0 and the while loop terminates
+        // the same for empty queue
+        while (pq_get_max_by_size(&(t->queue), &(t->msg_tx), max_size)) {
+          // increment size
+          msg_len += t->msg_tx.size;
+
+          // we know the message fits into the transaction window, so we can go ahead and send it
+          // send data
+          // FIXME: fd is not handed down, set to zero for now (stm32 arch ignores it, and chibios sets fd to zero anyway)
+          dev->put_buffer(dev->periph, 0, t->msg_tx.data, t->msg_tx.size);
+
+          // update the max_size
+          max_size = max_len - msg_len;
         }
 
       } else {
+        // transmission window ended
         // reset to the beginning
         t->delay = 0;
         t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL;
