@@ -41,6 +41,7 @@
 #include <inttypes.h>
 #include <string.h>
 #include "pprzlink/secure_pprz_transport.h"
+#include "std.h"
 
 // PPRZ parsing state machine
 #define UNINIT      0
@@ -56,42 +57,6 @@
     _t->msg.data[_t->msg.size] = _b;\
     _t->msg.size++;\
 }
-
-/**
- * compare two message containers
- */
-uint8_t pq_isless(const struct msg_container_t a, const struct msg_container_t b);
-
-/**
- * Initialize the message queue
- */
-uint8_t pq_init(struct pqueue_t *queue);
-
-/**
- * Push a message container into a queue
- */
-uint8_t pq_push(struct pqueue_t *queue, const struct msg_container_t *element);
-
-/**
- * Get the most important element from the queue
- * If two or more elements have the same priority, it depends on the time of insertion
- */
-uint8_t pq_getmax(struct pqueue_t *queue, struct msg_container_t *max_element);
-
-/**
- * Return the most important elements that are smaller than the size
- */
-uint8_t pq_get_max_by_size(struct pqueue_t *queue, struct msg_container_t *max_element, int32_t size);
-
-/**
- * Number of messages stored in the queue
- */
-uint8_t pq_size(struct pqueue_t *queue);
-
-/**
- * Return a copy of the max element from the queue
- */
-uint8_t pq_peek(struct pqueue_t *queue, struct msg_container_t *max_element);
 
 /**
  * Accumulate checksum. No change from the regular transport
@@ -247,10 +212,12 @@ void spprz_transport_init(struct spprz_transport *t, get_time_msec_t get_time_ms
 
   // init the interim message
   memset(&(t->msg),0,sizeof(struct msg_container_t));
+  memset(&(t->msg_tx),0,sizeof(struct msg_container_t));
 
   // scheduling variables
   t->delay = 0;
   t->last_rx_time = 0;
+  t->t_2 = 0;
   t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL;
 }
 
@@ -312,29 +279,110 @@ restart:
  *  Parsing a frame data and copy the payload to the datalink buffer
  *  All the logic over payload is done in paparazzi itself
  */
-void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *trans, uint8_t *buf, bool *msg_available)
+void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, uint8_t *buf, bool *msg_available)
 {
   uint8_t i;
   if (dev->char_available(dev->periph)) {
-    while (dev->char_available(dev->periph) && !trans->trans_rx.msg_received) {
-      parse_spprz(trans, dev->get_byte(dev->periph));
+    while (dev->char_available(dev->periph) && !t->trans_rx.msg_received) {
+      parse_spprz(t, dev->get_byte(dev->periph));
     }
-    if (trans->trans_rx.msg_received) {
-      for (i = 0; i < trans->trans_rx.payload_len; i++) {
-        buf[i] = trans->trans_rx.payload[i];
+    if (t->trans_rx.msg_received) {
+      // TODO: handle encryption/decryption here
+
+      // update the RX time
+      t->last_rx_time = t->get_time_msec();
+
+      // check for SYNC_CHANNEL message
+      if ( (t->trans_rx.payload[0] == 0) // comes from GCS
+          && (t->trans_rx.payload[1] == PPRZ_MSG_SYNC_CHANNEL_ID)) { // is SYNC_CHANNEL
+        // update delay value
+        t->delay = t->trans_rx.payload[2];
+        // update status
+        // NOTE: it is possible to reset the status from TRANSMITTING into WAIT_FOR_PROT_INTERVAL
+        // but we assume it is the responsibility of the GCS to send SYNC_CHANNEL messages at the right rate
+        t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_PROTECTION_INTERVAL;
+      }
+
+      for (i = 0; i < t->trans_rx.payload_len; i++) {
+        buf[i] = t->trans_rx.payload[i];
       }
       *msg_available = true;
-      trans->trans_rx.msg_received = false;
+      t->trans_rx.msg_received = false;
     }
   }
 }
 
 /**
  * Main scheduling function, called from telemetry_periodic at TELEMETRY_FREQUENCY
- * TODO
+ * Note: if there is enough data, the sending function can easily take more time than allocated
+ * For example, at 160Hz we have 6.25 ms for all processes to finish. They typically finish in less than 2 ms
+ * (since paparazzi can run at 500Hz), which leaves ~4ms to transmit data.
+ *
+ * This should be no problem, as the underlying serial drivers do DMA transfer and have their own buffers, but we might
+ * have to increase the size of serial buffers to hold more data. (defined in uart.h)
+ *
+ * The typical transmit interval can be around 35 ms (~6 iterations)
  */
-static void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), struct spprz_transport *trans __attribute__((unused))) {
+void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), struct spprz_transport *t __attribute__((unused))) {
+  static uint32_t elapsed = 0;
+  static uint8_t msg_len = 0;
+
   // copy what is in the rustlink implementation
+  switch (t->scheduler_status) {
+    case SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL:
+      // do nothing - waiting for the SYNC_CHANNEL message
+      break;
+    case SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_PROTECTION_INTERVAL:
+      // SYNC_CHANNEL received, now check if the protection interval passed
+      if ((t->get_time_msec() - t->last_rx_time) >= PPRZ_PROTECTION_INTERVAL_MS) {
+        // mark T2
+        t->t_2 = t->get_time_msec();
+
+        // begin transmit
+        t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_TRANSMITTING;
+      }
+      // DONT BREAK -> fall through to the next case to begin transmit
+    case SECURE_PPRZ_TRANSPORT_STATUS_TRANSMITTING:
+      // check if T2 elapsed
+      elapsed = t->get_time_msec() - t->t_2; // > 0
+
+      if (elapsed <= t->delay) {
+        // keep transmitting (delays > elapsed
+
+        // check how much more data we can send
+        uint32_t remaining_time = t->delay - elapsed; // > 0
+        uint32_t max_len_32 = (remaining_time * 1000)/PPRZ_US_PER_BYTE; // cast to us and divide by US_PER_BYTE
+        uint8_t max_len = Min(max_len_32, 256); // bound max_len to 256
+
+        // this is risky if we are sending lots of data - but should be fine once we start using proper threads
+        // keep checking the queue until it is empty or until the popped message isn't exceeding the length
+        while ( !pq_isempty(&(t->queue)) ) {
+          // get max element
+          if (pq_getmax(&(t->queue), &(t->msg_tx))) {
+            // increment size
+            msg_len += t->msg_tx.size;
+
+            // check if we can send in the given time interval
+            if (msg_len <= max_len) {
+              // send data
+              // FIXME: fd is not handed down, set to zero for now (stm32 arch ignores it, and chibios sets fd to zero anyway)
+              dev->put_buffer(dev->periph, 0, t->msg_tx.data, t->msg_tx.size);
+            } else {
+              // the popped message exceeded the length, reinsert to the queue
+              pq_push(&(t->queue), &(t->msg_tx));
+            }
+          }
+        }
+
+      } else {
+        // reset to the beginning
+        t->delay = 0;
+        t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL;
+      }
+      break;
+    default:
+      break;
+  }
 }
 
 
@@ -358,6 +406,13 @@ uint8_t pq_init(struct pqueue_t *queue)
 uint8_t pq_size(struct pqueue_t *queue)
 {
   return queue->N;
+}
+
+uint8_t pq_isempty(struct pqueue_t *queue) {
+  if (pq_size(queue) == 0) {
+    return 1;
+  }
+  return 0;
 }
 
 uint8_t pq_push(struct pqueue_t *queue, const struct msg_container_t* element)

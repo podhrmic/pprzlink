@@ -55,9 +55,10 @@ extern "C" {
 #define PPRZ_MAX_MSG_LEN 256
 #define PPRZ_MAX_Q_SIZE 10
 
-#define PPRZ_PROTECTION_INTERVAL_US 6000 // TODO: make user definable?
+#define PPRZ_PROTECTION_INTERVAL_MS 6 // TODO: make user definable?
 #define PPRZ_US_PER_BYTE 170 // at 57600 baud, TODO: make user definable
 
+#define PPRZ_MSG_SYNC_CHANNEL_ID 158 // TODO: link to messages.xml?
 
 enum SecurePprzTransportStatus {
   SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL,
@@ -101,12 +102,16 @@ struct spprz_transport {
   // transport structure for queue insertion
   struct msg_container_t msg;
 
+  // transport structure for queue extraction
+  struct msg_container_t msg_tx;
+
   // get current time function pointer
   get_time_msec_t get_time_msec;
 
   // scheduling variables
   uint8_t delay; // in ms
   uint32_t last_rx_time; // in ms
+  uint32_t t_2; // in ms
   enum SecurePprzTransportStatus scheduler_status; // scheduling status
 };
 
@@ -118,11 +123,57 @@ struct spprz_transport {
 extern void spprz_transport_init(struct spprz_transport *t, uint32_t (*get_time_msec_t)(void));
 
 // Checking new data and parsing
-extern void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *trans, uint8_t *buf, bool *msg_available);
+extern void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, uint8_t *buf, bool *msg_available);
 
 // Parsing function, only needed for modules doing their own parsing
 // without using the pprz_check_and_parse function
 extern void parse_spprz(struct spprz_transport *t, uint8_t c);
+
+// Sending function - release messages from the queue
+extern void spprz_scheduling_periodic(struct link_device *dev, struct spprz_transport *t);
+
+
+/**
+ * compare two message containers
+ */
+uint8_t pq_isless(const struct msg_container_t a, const struct msg_container_t b);
+
+/**
+ * Initialize the message queue
+ */
+uint8_t pq_init(struct pqueue_t *queue);
+
+/**
+ * Push a message container into a queue
+ */
+uint8_t pq_push(struct pqueue_t *queue, const struct msg_container_t *element);
+
+/**
+ * Get the most important element from the queue
+ * If two or more elements have the same priority, it depends on the time of insertion
+ */
+uint8_t pq_getmax(struct pqueue_t *queue, struct msg_container_t *max_element);
+
+/**
+ * Return the most important elements that are smaller than the size
+ */
+uint8_t pq_get_max_by_size(struct pqueue_t *queue, struct msg_container_t *max_element, int32_t size);
+
+/**
+ * Number of messages stored in the queue
+ */
+uint8_t pq_size(struct pqueue_t *queue);
+
+/**
+ * Return a copy of the max element from the queue
+ */
+uint8_t pq_peek(struct pqueue_t *queue, struct msg_container_t *max_element);
+
+/**
+ * Return 1 if the queue has size of 0
+ */
+uint8_t pq_isempty(struct pqueue_t *queue);
+
 
 #ifdef __cplusplus
 } /* extern "C" */
