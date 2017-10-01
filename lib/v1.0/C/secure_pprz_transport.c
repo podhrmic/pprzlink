@@ -43,7 +43,7 @@
 #include "pprzlink/secure_pprz_transport.h"
 
 // crypto
-#include "hacl-c/Chacha20Poly1305.h"
+#include "pprzlink/Chacha20Poly1305.h"
 
 #include "std.h"
 
