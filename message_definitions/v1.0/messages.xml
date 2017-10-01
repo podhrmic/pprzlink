@@ -319,7 +319,14 @@
       <field name="power"   type="float" unit="W"/>
     </message>
 
-    <!-- 38 is free -->
+    <message name="QUEUE_STATUS" id="38">
+      <field name="N" type="uint8"/>
+      <field name="delay" type="uint8"/>
+      <field name="elapsed" type="uint8"/>
+      <field name="maxlen" type="uint8"/>
+      <field name="curtime" type="uint32"/>
+    </message>
+
     <!-- 39 is free -->
     <!-- 40 is free -->
 

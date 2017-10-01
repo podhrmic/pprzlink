@@ -43,6 +43,8 @@
 #include "pprzlink/secure_pprz_transport.h"
 #include "std.h"
 
+#include "led.h"
+
 // PPRZ parsing state machine
 #define UNINIT      0
 #define GOT_STX     1
@@ -301,6 +303,8 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, u
         // NOTE: it is possible to reset the status from TRANSMITTING into WAIT_FOR_PROT_INTERVAL
         // but we assume it is the responsibility of the GCS to send SYNC_CHANNEL messages at the right rate
         t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_PROTECTION_INTERVAL;
+
+        LED_TOGGLE(4);
       }
 
       for (i = 0; i < t->trans_rx.payload_len; i++) {
@@ -325,6 +329,37 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, u
  */
 void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), struct spprz_transport *t __attribute__((unused))) {
   static uint32_t elapsed = 0; // counts the elapsed time
+  static uint32_t remaining_time = 0;
+  static uint32_t max_len_32 = 0;
+  static uint8_t max_len = 0;
+  static uint8_t msg_len = 0;
+  static uint8_t max_size = 0;
+
+
+  /*
+  <message name="QUEUE_STATUS" id="38">
+    <field name="N" type="uint8"/>
+    <field name="delay" type="uint8"/>
+    <field name="elapsed" type="uint8"/>
+    <field name="maxlen" type="int8"/>
+  </message>
+  0 - STX
+  1 - len
+  2- sender_id
+  3 - msg_id
+  4 - n
+  5 - delay
+  6 - elapsed
+  7 - maxlen
+  8 - chk a
+  9 - chk b
+  */
+  static uint8_t id = 4;
+  static uint8_t mid = 38;
+  static uint8_t flag = 1;
+
+
+
 
   // copy what is in the rustlink implementation
   switch (t->scheduler_status) {
@@ -332,6 +367,7 @@ void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), 
       // do nothing - waiting for the SYNC_CHANNEL message
       break;
     case SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_PROTECTION_INTERVAL:
+      LED_TOGGLE(3);
       // SYNC_CHANNEL received, now check if the protection interval passed
       if ((t->get_time_msec() - t->last_rx_time) >= PPRZ_PROTECTION_INTERVAL_MS) {
         // mark T2
@@ -349,15 +385,33 @@ void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), 
         // keep transmitting (delays > elapsed
 
         // check how much more data we can send
-        uint32_t remaining_time = t->delay - elapsed; // > 0
-        uint32_t max_len_32 = (remaining_time * 1000)/PPRZ_US_PER_BYTE; // cast to u_secs and divide by US_PER_BYTE
-        uint8_t max_len = Min(max_len_32, 256); // bound max_len to 256
-        uint8_t msg_len = 0; // number of bytes to send
-        uint8_t max_size = max_len; // remaining number of bytes to send
+        remaining_time = t->delay - elapsed; // > 0
+        max_len_32 = (remaining_time * 1000)/PPRZ_US_PER_BYTE; // cast to u_secs and divide by US_PER_BYTE
+        max_len = Min(max_len_32, 255); // bound max_len to 256
+        msg_len = 0; // number of bytes to send
+        max_size = max_len; // remaining number of bytes to send
+
+        //
+        if (flag) {
+        uint32_t _curtime = t->get_time_msec();
+        uint8_t size = pq_size(&(t->queue));
+        // attach to the queue
+        start_message(t, dev, 0, 0+1+1+1+1+4 +2/* msg header overhead */);
+        put_priority(t, dev, 0, 2);
+        put_bytes(t, dev, 0, DL_TYPE_UINT8, DL_FORMAT_SCALAR, &id, 1);
+        put_named_byte(t, dev, 0, DL_TYPE_UINT8, DL_FORMAT_SCALAR, mid, "QUEUE_STATUS");
+        put_bytes(t, dev, 0, DL_TYPE_UINT8, DL_FORMAT_SCALAR, (void *) &size, 1);
+        put_bytes(t, dev, 0, DL_TYPE_UINT8, DL_FORMAT_SCALAR, (void *) &(t->delay), 1);
+        put_bytes(t, dev, 0, DL_TYPE_UINT8, DL_FORMAT_SCALAR, (void *) &elapsed, 1);
+        put_bytes(t, dev, 0, DL_TYPE_INT8, DL_FORMAT_SCALAR, (void *) &max_len, 1);
+        put_bytes(t, dev, 0, DL_TYPE_UINT32, DL_FORMAT_SCALAR, (void *) &remaining_time, 4);
+        end_message(t, dev, 0);
+        flag=0;
+        }
+        //
 
         // this is risky if we are sending lots of data - but should be fine once we start using proper threads
-        // keep checking the queue until it is empty or until the popped message isn't exceeding the length
-
+        //
         // select the max element that fits into the transaction window (if no messages that fit the window are
         // available, returns 0 and the while loop terminates
         // the same for empty queue
@@ -368,7 +422,10 @@ void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), 
           // we know the message fits into the transaction window, so we can go ahead and send it
           // send data
           // FIXME: fd is not handed down, set to zero for now (stm32 arch ignores it, and chibios sets fd to zero anyway)
-          dev->put_buffer(dev->periph, 0, t->msg_tx.data, t->msg_tx.size);
+          if (dev->check_free_space(dev->periph, 0, t->msg_tx.size)) {
+            dev->put_buffer(dev->periph, 0, t->msg_tx.data, t->msg_tx.size);
+            LED_TOGGLE(5);
+          }
 
           // update the max_size
           max_size = max_len - msg_len;
@@ -379,6 +436,7 @@ void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), 
         // reset to the beginning
         t->delay = 0;
         t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL;
+        flag=1;
       }
       break;
     default:

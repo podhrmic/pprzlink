@@ -53,9 +53,9 @@ extern "C" {
 // Start byte
 #define PPRZ_STX  0x99
 #define PPRZ_MAX_MSG_LEN 256
-#define PPRZ_MAX_Q_SIZE 20
+#define PPRZ_MAX_Q_SIZE 10
 
-#define PPRZ_PROTECTION_INTERVAL_MS 6 // TODO: make user definable?
+#define PPRZ_PROTECTION_INTERVAL_MS 3 // TODO: make user definable?
 #define PPRZ_US_PER_BYTE 170 // at 57600 baud, TODO: make user definable
 
 #define PPRZ_MSG_SYNC_CHANNEL_ID 158 // TODO: link to messages.xml?
@@ -75,7 +75,7 @@ struct msg_container_t {
     uint32_t time; // time of insertion of the message (ms), overflow in ~10hrs
 };
 
-// 20x256 = 5120 = 5kb additional memory
+
 struct pqueue_t {
     struct msg_container_t elements[PPRZ_MAX_Q_SIZE];
     uint8_t N;
