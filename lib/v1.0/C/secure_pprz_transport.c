@@ -43,7 +43,7 @@
 #include "pprzlink/secure_pprz_transport.h"
 
 // crypto
-#include "pprzlink/Chacha20Poly1305.h"
+#include "modules/datalink/hacl-c/Chacha20Poly1305.h"
 
 #include "std.h"
 
@@ -311,7 +311,10 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, u
 //          uint8_t *k1,
 //          uint8_t *n1
 //      );
-      Chacha20Poly1305_aead_decrypt(NULL, NULL, 0, NULL, NULL, 0, NULL, NULL); // test only
+
+      // Example use of the crypto
+      Chacha20Poly1305_aead_decrypt(t->trans_rx.payload, t->trans_rx.payload, 256, t->trans_rx.payload[23], NULL, 0, t->rx_key, t->rx_cnt); // test only
+      Chacha20Poly1305_aead_encrypt(t->trans_rx.payload, t->trans_rx.payload, 256, t->trans_rx.payload[23], NULL, 0, t->rx_key, t->rx_cnt); // test only
 
       // update the RX time
       t->last_rx_time = t->get_time_msec();

@@ -130,10 +130,10 @@ struct spprz_transport {
   // Crypto stuff
   enum SecurePrrzCryptoStatus crypto_status; // status of the crypto scheme
 
-  uint8_t rx_key[PPRZ_KEY_LEN] = UAV_RX_KEY; // key to decrypt incoming messages
+  uint8_t rx_key[PPRZ_KEY_LEN]; // key to decrypt incoming messages
   uint32_t rx_cnt; // counter (IV) for incoming messages
 
-  uint8_t tx_key[PPRZ_KEY_LEN] = UAV_TX_KEY; // key to encrypt outcoming messages
+  uint8_t tx_key[PPRZ_KEY_LEN]; // key to encrypt outcoming messages
   uint32_t tx_cnt; // counter (IV) for outcoming messages
 };
 
