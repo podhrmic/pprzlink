@@ -60,11 +60,24 @@ extern "C" {
 
 #define PPRZ_MSG_SYNC_CHANNEL_ID 158 // TODO: link to messages.xml?
 
+#define PPRZ_KEY_LEN 32
+
 enum SecurePprzTransportStatus {
   SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL,
   SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_PROTECTION_INTERVAL,
   SECURE_PPRZ_TRANSPORT_STATUS_TRANSMITTING,
 };
+
+enum SecurePrrzCryptoStatus {
+  SECURE_PPRZ_CRYPTO_STATUS_WAITING_FOR_KEY_P_AE, // P_AE
+  SECURE_PPRZ_CRYPTO_STATUS_WAITING_FOR_SIG, // SIG
+  SECURE_PPRZ_CRYPTO_STATUS_OK, // Ongoing
+};
+
+// for DEBUG Crypto
+#define UAV_RX_KEY { 0x70, 0x3, 0xAA, 0xA, 0x8E, 0xE9, 0xA8, 0xFF, 0xD5, 0x46, 0x1E, 0xEC, 0x7C, 0xC1, 0xC1, 0xA1, 0x6A, 0x43, 0xC9, 0xD4, 0xB3, 0x2B, 0x94, 0x7E, 0x76, 0xF9, 0xD8, 0xE8, 0x1A, 0x31, 0x5D, 0xA8 }
+#define UAV_TX_KEY { 0xAD, 0xC6, 0x84, 0xD6, 0xD5, 0xD0, 0x9B, 0x94, 0xEA, 0xEE, 0x72, 0x57, 0x4, 0x82, 0x52, 0xAE, 0xAA, 0xD3, 0xDE, 0xB0, 0xF1, 0xFC, 0xBF, 0x6B, 0x2C, 0xA3, 0xA4, 0x8, 0x28, 0x41, 0x77, 0x2B }
+
 
 typedef uint32_t (*get_time_msec_t)(void);
 
@@ -113,6 +126,15 @@ struct spprz_transport {
   uint32_t last_rx_time; // in ms
   uint32_t t_2; // in ms
   enum SecurePprzTransportStatus scheduler_status; // scheduling status
+
+  // Crypto stuff
+  enum SecurePrrzCryptoStatus crypto_status; // status of the crypto scheme
+
+  uint8_t rx_key[PPRZ_KEY_LEN] = UAV_RX_KEY; // key to decrypt incoming messages
+  uint32_t rx_cnt; // counter (IV) for incoming messages
+
+  uint8_t tx_key[PPRZ_KEY_LEN] = UAV_TX_KEY; // key to encrypt outcoming messages
+  uint32_t tx_cnt; // counter (IV) for outcoming messages
 };
 
 

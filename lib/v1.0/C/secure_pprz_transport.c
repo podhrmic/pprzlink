@@ -41,9 +41,14 @@
 #include <inttypes.h>
 #include <string.h>
 #include "pprzlink/secure_pprz_transport.h"
+
+// crypto
+#include "hacl-c/Chacha20Poly1305.h"
+
 #include "std.h"
 
-#include "led.h"
+#include "led.h" // for DEBUG
+
 
 // PPRZ parsing state machine
 #define UNINIT      0
@@ -221,6 +226,11 @@ void spprz_transport_init(struct spprz_transport *t, get_time_msec_t get_time_ms
   t->last_rx_time = 0;
   t->t_2 = 0;
   t->scheduler_status = SECURE_PPRZ_TRANSPORT_STATUS_WAITING_FOR_SYNC_CHANNEL;
+
+  // crypto stuff
+  t->crypto_status = SECURE_PPRZ_CRYPTO_STATUS_OK; // just simple AEAD test for now
+  t->rx_cnt = 0; // erase rx counter
+  t->tx_cnt = 0; // erase tx counter
 }
 
 
@@ -290,6 +300,18 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, u
     }
     if (t->trans_rx.msg_received) {
       // TODO: handle encryption/decryption here
+//      uint32_t
+//      Chacha20Poly1305_aead_decrypt(
+//          uint8_t *m,
+//          uint8_t *c,
+//          uint32_t mlen,
+//          uint8_t *mac,
+//          uint8_t *aad1,
+//          uint32_t aadlen,
+//          uint8_t *k1,
+//          uint8_t *n1
+//      );
+      Chacha20Poly1305_aead_decrypt(NULL, NULL, 0, NULL, NULL, 0, NULL, NULL); // test only
 
       // update the RX time
       t->last_rx_time = t->get_time_msec();
