@@ -44,6 +44,9 @@
 
 // crypto
 #include "modules/datalink/hacl-c/Chacha20Poly1305.h"
+#include "modules/datalink/hacl-c/Ed25519.h"
+#include "modules/datalink/hacl-c/Curve25519.h"
+#include "modules/datalink/hacl-c/SHA2_512.h"
 
 #include "std.h"
 
@@ -117,7 +120,9 @@ static void put_named_byte(struct spprz_transport *trans, struct link_device *de
 static uint8_t size_of(struct spprz_transport *trans __attribute__((unused)), uint8_t len)
 {
   // message length: payload + protocol overhead (STX + len + ck_a + ck_b = 4)
-  return len + 4;
+  // return len + 4;
+  // message length: payload + protocol overhead (STX + len + ck_a + ck_b = 4) + 16 bytes crypto overhead
+  return len + 4 + PPRZ_CRYPTO_OVERHEAD;
 }
 
 /**
@@ -133,9 +138,10 @@ static void start_message(struct spprz_transport *trans, struct link_device *dev
   trans->msg.data[trans->msg.size] = PPRZ_STX;
   trans->msg.size++;
 
-  const uint8_t msg_len = size_of(trans, payload_len);
+  uint8_t msg_len = size_of(trans, payload_len);
+  trans->msg.data_len = payload_len;
 
-  //dev->put_byte(dev->periph, fd, msg_len);
+  // dev->put_byte(dev->periph, fd, msg_len);
   msg_put_byte(trans,msg_len);
 
   trans->ck_a_tx = msg_len;
@@ -159,9 +165,64 @@ static void overrun(struct spprz_transport *trans __attribute__((unused)), struc
  */
 static void end_message(struct spprz_transport *trans, struct link_device *dev, long fd __attribute__((unused)))
 {
-  //dev->put_byte(dev->periph, fd, trans->ck_a_tx);
-  //dev->put_byte(dev->periph, fd, trans->ck_b_tx);
-  msg_put_byte(trans,trans->ck_a_tx);
+  // check message length (minus crypto overhead minus checksum)
+  if (trans->msg.size > (PPRZ_MAX_MSG_LEN - PPRZ_CRYPTO_OVERHEAD -2)) {
+    // message too long to be encrypted
+    return;
+  }
+
+  // set crypto buffer
+  static uint8_t crypto_buffer[PPRZ_MAX_MSG_LEN];
+  static uint8_t mac[16];
+  static uint8_t nonce[12];
+  memset(crypto_buffer, 0, sizeof(crypto_buffer));
+  memset(mac, 0, sizeof(mac));
+  memset(nonce, 0, sizeof(nonce));
+
+
+  // increment counter (iv)
+  //trans->tx_cnt++;
+
+  // set nonce
+  //nonce[0] = 1;//(uint8_t)(trans->tx_cnt);
+  //nonce[1] = (uint8_t)(trans->tx_cnt >> 8);
+  //nonce[2] = (uint8_t)(trans->tx_cnt >> 16);
+  //nonce[3] = (uint8_t)(trans->tx_cnt >> 24);
+  // 0 stx
+  // 1 len
+  // 2 sender id
+  // 3 msg_id
+  //trans->msg.data[0] = PPRZ_STX;
+  //trans->msg.data[1] = 4;
+
+  // test
+  trans->msg.data[2] = 4;
+  trans->msg.data[3] = 3;
+  trans->msg.data_len = 2;
+
+  // encrypt
+  Chacha20Poly1305_aead_encrypt(crypto_buffer, mac, &trans->msg.data[2], // big bad typo!
+      trans->msg.data_len, NULL, 0, trans->tx_key, nonce); // subtract header and crypto overhead
+  //memcpy(crypto_buffer, &(trans->msg.data[2]), 2);
+
+  //memset(&(trans->msg.data[2]), 0, 200);
+  // reassemble the message
+  // pprz_stx|len|nonce|crypto_buffer|mac|checksum
+  // pprz_stx and len stays
+  memcpy(&(trans->msg.data[2]), nonce, (size_t)4); //
+  memcpy(&(trans->msg.data[6]), crypto_buffer, trans->msg.data_len); //  encrypted data
+  memcpy(&(trans->msg.data[6+trans->msg.data_len]), mac, 16); // tag
+
+  trans->msg.size = trans->msg.data_len + 2 + 20; // payload len + 2 (stx,len) + 20 (crypto)
+
+  // recalculate the checksum
+  trans->ck_a_tx = 0;//trans->msg.data[1];
+  trans->ck_b_tx = 0;//trans->msg.data[1];
+  for(uint8_t i=1;i<((trans->msg.size));i++){ // from len to end of tag
+    accumulate_checksum(trans, trans->msg.data[i]);
+  }
+
+  msg_put_byte(trans,trans->ck_a_tx); // + 2checksum
   msg_put_byte(trans,trans->ck_b_tx);
 
   // time of insertion in ms
@@ -231,6 +292,47 @@ void spprz_transport_init(struct spprz_transport *t, get_time_msec_t get_time_ms
   t->crypto_status = SECURE_PPRZ_CRYPTO_STATUS_OK; // just simple AEAD test for now
   t->rx_cnt = 0; // erase rx counter
   t->tx_cnt = 0; // erase tx counter
+
+  // init keys
+  uint8_t keyRx[PPRZ_KEY_LEN] = UAV_RX_KEY;
+  uint8_t keyTx[PPRZ_KEY_LEN] = UAV_TX_KEY;
+  for (uint8_t i=0;i<PPRZ_KEY_LEN;i++) {
+    t->rx_key[i] = keyRx[i];
+    t->tx_key[i] = keyTx[i];
+  }
+
+
+//  // Hash test
+//      // kdf(z,partyIdent) = SHA512( 0 || z || partyIdent)
+//      // 0 is 2bytes
+//      // z is 32 bytes
+//      // ident is 1 byte
+//      // total: 35 bytes?
+//      // output hash: 32 bytes
+//      // returns 64 bytes of hash
+//  // void SHA2_512_hash(uint8_t *hash1, uint8_t *input, uint32_t len);
+//  uint8_t hash[64];
+//  uint8_t c[255];
+//  SHA2_512_hash(hash, c, 35);
+//
+//  /*
+//  secret key: 32 bytes
+//  message: arbitrary len?
+//  signature: 64 bytes
+//  void Ed25519_sign(uint8_t *signature, uint8_t *secret, uint8_t *msg, uint32_t len1);
+//  */
+//  uint8_t signature[32];
+//  Ed25519_sign(signature, t->rx_key, c, 32);
+//
+//  /*
+//  #define crypto_scalarmult_curve25519_BYTES 32U
+//  # basepoint i 9, probably has 32bytes length too (it can be used with another public_key
+//  void Curve25519_crypto_scalarmult(uint8_t *mypublic, uint8_t *secret, uint8_t *basepoint);
+//  */
+//  uint8_t basepoint[32];
+//  basepoint[31] = 9;
+//  uint8_t mypublic[32];
+//  Curve25519_crypto_scalarmult(mypublic, t->rx_key, basepoint);
 }
 
 
@@ -299,22 +401,39 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, u
       parse_spprz(t, dev->get_byte(dev->periph));
     }
     if (t->trans_rx.msg_received) {
-      // TODO: handle encryption/decryption here
-//      uint32_t
-//      Chacha20Poly1305_aead_decrypt(
-//          uint8_t *m,
-//          uint8_t *c,
-//          uint32_t mlen,
-//          uint8_t *mac,
-//          uint8_t *aad1,
-//          uint32_t aadlen,
-//          uint8_t *k1,
-//          uint8_t *n1
-//      );
+      //now we have the full message in t->trans_rx.payload
+//      // lets dissect it for now
+//      static uint8_t msg[PPRZ_MAX_MSG_LEN];
+//      static uint8_t c[PPRZ_MAX_MSG_LEN];
+//      static uint8_t mac[16];
+//      static uint8_t nonce[8];
+//      static uint8_t mlen;
+//      memset(c, 0, sizeof(c));
+//      memset(msg, 0, sizeof(msg));
+//      memset(mac, 0, sizeof(mac));
+//      memset(nonce, 0, sizeof(nonce));
+//
+//      mlen = t->trans_rx.payload_len; // payload len including crypto overhead
+//      uint8_t idx = 0;
+//      memcpy(nonce, &(t->trans_rx.payload[idx]), 4); // copy nonce (first 4 bytes)
+//      idx = 4;
+//      memcpy(c, &(t->trans_rx.payload[idx]), (mlen-PPRZ_CRYPTO_OVERHEAD)); // copy ciphertext
+//      idx = idx + (mlen-PPRZ_CRYPTO_OVERHEAD);
+//      memcpy(mac, &(t->trans_rx.payload[idx]), 16); // copy 16 bytes of tag
+//      idx = idx + 16;
+//
+//      // decrypt
+//      // if decrypt returns nonzero value, the decryption wasn't sucessful
+//      if (Chacha20Poly1305_aead_decrypt(msg, c, mlen, mac, NULL, 0, t->rx_key, nonce) != 0) {
+//        t->trans_rx.msg_received = false;
+//        return;
+//      } else {
+//        // decryption sucessful, update the counters etc.
+//        memset(t->trans_rx.payload, 0, TRANSPORT_PAYLOAD_LEN);
+//        memcpy(t->trans_rx.payload, msg, (mlen-PPRZ_CRYPTO_OVERHEAD));
+//        t->rx_cnt++; // TODO: fix properly with union
+//      }
 
-      // Example use of the crypto
-      Chacha20Poly1305_aead_decrypt(t->trans_rx.payload, t->trans_rx.payload, 256, t->trans_rx.payload[23], NULL, 0, t->rx_key, t->rx_cnt); // test only
-      Chacha20Poly1305_aead_encrypt(t->trans_rx.payload, t->trans_rx.payload, 256, t->trans_rx.payload[23], NULL, 0, t->rx_key, t->rx_cnt); // test only
 
       // update the RX time
       t->last_rx_time = t->get_time_msec();
@@ -332,7 +451,7 @@ void spprz_check_and_parse(struct link_device *dev, struct spprz_transport *t, u
         LED_TOGGLE(4);
       }
 
-      for (i = 0; i < t->trans_rx.payload_len; i++) {
+      for (i = 0; i < t->trans_rx.payload_len; i++) { // TODO: fix this
         buf[i] = t->trans_rx.payload[i];
       }
       *msg_available = true;
@@ -416,12 +535,13 @@ void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), 
         msg_len = 0; // number of bytes to send
         max_size = max_len; // remaining number of bytes to send
 
+        /*
         //
         if (flag) {
-        uint32_t _curtime = t->get_time_msec();
+        //uint32_t _curtime = t->get_time_msec();
         uint8_t size = pq_size(&(t->queue));
         // attach to the queue
-        start_message(t, dev, 0, 0+1+1+1+1+4 +2/* msg header overhead */);
+        start_message(t, dev, 0, 0+1+1+1+1+4 +2);
         put_priority(t, dev, 0, 2);
         put_bytes(t, dev, 0, DL_TYPE_UINT8, DL_FORMAT_SCALAR, &id, 1);
         put_named_byte(t, dev, 0, DL_TYPE_UINT8, DL_FORMAT_SCALAR, mid, "QUEUE_STATUS");
@@ -434,6 +554,8 @@ void spprz_scheduling_periodic(struct link_device *dev __attribute__((unused)), 
         flag=0;
         }
         //
+        */
+
 
         // this is risky if we are sending lots of data - but should be fine once we start using proper threads
         //
